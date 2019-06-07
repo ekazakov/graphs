@@ -70,85 +70,58 @@ const formatMonth = options => date => {
   const fmtOptions = ["MMM"];
 
   if (isFirstMonth && !isSingleYear) {
-    fmtOptions.push("yy");
+    fmtOptions.push("yyyy");
   }
 
   return formatDateFns(date, fmtOptions.join(" "));
+};
+
+const formatQuarter = options => date => {
+  const { isFirstQuarter, isSingleYear } = options;
+
+  const quarter = `Q${getQuarter(date)}`;
+  if (isFirstQuarter && !isSingleYear) {
+    return `${quarter} ${getYear(date)}`;
+  }
+  return quarter;
+};
+
+const formatYear = options => date => {
+  return formatDateFns(date, "yyyy");
 };
 
 const formatters = {
   1: formatDay,
   7: formatWeek,
-  30: formatMonth
-};
-
-const formatDate2 = granularity => options => date => {
-  const { isFirstDay, isFirstWeek, isFirstMonth, isSingleYear } = options;
-  if (granularity == "7") {
-    const week = `KW ${getWeek(date)}`;
-    if (isFirstWeek && !isSingleYear) {
-      return `${week} ${getYear(date)}`;
-    }
-    return week;
-  }
-
-  const fmtOptions = ["dd"];
-  if (isFirstDay) {
-    fmtOptions.push("MMM");
-  }
-
-  // console.log("options.isFirstItem", options.isFirstItem);
-  if (isFirstDay && isFirstMonth && !isSingleYear) {
-    fmtOptions.push("yy");
-  }
-
-  return formatDateFns(date, fmtOptions.join(" "));
-};
-
-const formatGroup = (year, options, format) => {
-  const monthes = keys(year);
-
-  return reduce(
-    monthes,
-    (result, month, monthIndex) => {
-      const days = year[month];
-      options.isFirstMonth = monthIndex === 0;
-
-      result[month] = map(days, (date, index) => {
-        const opts = { ...options, isFirstDay: index === 0 };
-        return format(opts)(date);
-      });
-      return result;
-    },
-    {}
-  );
+  30: formatMonth,
+  90: formatQuarter,
+  365: formatYear
 };
 
 const groupByMonth = items => groupBy(items, tick => getMonth(tick));
 
-const formatTicks = (ticks, granularity) => {
-  const byYear = groupBy(ticks, tick => getYear(tick));
-  const isSingleYear = size(byYear) === 1;
-  const formatter = formatters[granularity];
-  if (granularity == 7) {
-    const g3 = reduce(
-      byYear,
-      (result, dates, year) => {
-        const options = { isSingleYear };
-        result[year] = map(dates, (date, index) => {
-          const opts = { ...options, isFirstWeek: index === 0 };
+const buildDay = (years, isSingleYear, formatter) => {
+  const formatGroup = (year, options, formatter) => {
+    const monthes = keys(year);
+
+    return reduce(
+      monthes,
+      (result, month, monthIndex) => {
+        const days = year[month];
+        options.isFirstMonth = monthIndex === 0;
+
+        result[month] = map(days, (date, index) => {
+          const opts = { ...options, isFirstDay: index === 0 };
           return formatter(opts)(date);
         });
         return result;
       },
       {}
     );
+  };
 
-    return zipObject(ticks, flatMapDeep(g3, values));
-  }
-
-  const g3 = reduce(
-    byYear,
+  return reduce(
+    years,
     (result, dates, year) => {
       const options = { isSingleYear };
       const byMonth = groupByMonth(dates);
@@ -157,8 +130,46 @@ const formatTicks = (ticks, granularity) => {
     },
     {}
   );
+};
 
-  return zipObject(ticks, flatMapDeep(g3, values));
+const buildPeriodFactory = period => (years, isSingleYear, formatter) => {
+  const periods = { week: "isFirstWeek", month: "isFirstMonth", quarter: "isFirstQuarter", year: "ignore" };
+  const key = periods[period];
+  return reduce(
+    years,
+    (result, dates, year) => {
+      const options = { isSingleYear };
+      result[year] = map(dates, (date, index) => {
+        const opts = { ...options, [key]: index === 0 };
+        return formatter(opts)(date);
+      });
+      return result;
+    },
+    {}
+  );
+};
+
+const buildWeek = buildPeriodFactory("week");
+const buildMonth = buildPeriodFactory("month");
+const buildQuarter = buildPeriodFactory("quarter");
+const buildYear = buildPeriodFactory("year");
+
+const builders = {
+  1: buildDay,
+  7: buildWeek,
+  30: buildMonth,
+  90: buildQuarter,
+  365: buildYear
+};
+
+const formatTicks = (ticks, granularity) => {
+  const years = groupBy(ticks, tick => getYear(tick));
+  const isSingleYear = size(years) === 1;
+  const formatter = formatters[granularity];
+  const builder = builders[granularity];
+  const items = builder(years, isSingleYear, formatter);
+
+  return zipObject(ticks, flatMapDeep(items, values));
 };
 
 export function TimeSeriesGraph(props) {
@@ -173,6 +184,7 @@ export function TimeSeriesGraph(props) {
   const ticks = data.filter((_, index) => index % stepSize === 0).map(item => item.date);
   const title = `${duration} days graph, ticks: ${size(ticks)} , stepSize: ${stepSize}`;
   const formattedTicks = formatTicks(ticks, granularity);
+  // console.log(map(data, ({ date }) => formatDateFns(date, "dd MMM yyyy")));
   console.log("tiks", formattedTicks);
 
   return (

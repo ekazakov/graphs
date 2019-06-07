@@ -17,6 +17,10 @@ export function generateTimeseries(total, granularity) {
     return items;
   }
 
+  if (granularity == 30) {
+    granularity = 31;
+  }
+
   const results = [];
   while (size(items) > 0) {
     const chunk = items.splice(0, granularity);
